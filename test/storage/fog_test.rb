@@ -180,6 +180,20 @@ class FogTest < Test::Unit::TestCase
         end
       end
 
+      context "without explicitly setting fog_public" do
+        setup do
+          @options.delete :fog_public
+          rebuild_model(@options)
+          @dummy = Dummy.new
+          @dummy.avatar = StringIO.new('.')
+          @dummy.save
+        end
+        
+        should "set fog_public to true" do
+          assert @dummy.avatar.fog_public
+        end
+      end
+
       context "with fog_public set to false" do
         setup do
           rebuild_model(@options.merge(:fog_public => false))
@@ -188,9 +202,21 @@ class FogTest < Test::Unit::TestCase
           @dummy.save
         end
 
-        should 'set the @fog_public instance variable to false' do
-          assert_equal false, @dummy.avatar.instance_variable_get('@options')[:fog_public]
-          assert_equal false, @dummy.avatar.fog_public
+        should 'set fog_public to false' do
+          assert !@dummy.avatar.fog_public
+        end
+      end
+      
+      context 'with fog_public set to true' do
+        setup do
+          rebuild_model(@options.merge(:fog_public => true))
+          @dummy = Dummy.new
+          @dummy.avatar = StringIO.new('.')
+          @dummy.save
+        end
+
+        should 'set fog_public to true' do
+          assert @dummy.avatar.fog_public
         end
       end
 
