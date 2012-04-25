@@ -7,6 +7,8 @@ class ThumbnailTest < Test::Unit::TestCase
       @tempfile = Paperclip::Tempfile.new(["file", ".jpg"])
     end
 
+    teardown { @tempfile.close }
+
     should "have its path contain a real extension" do
       assert_equal ".jpg", File.extname(@tempfile.path)
     end
@@ -20,6 +22,8 @@ class ThumbnailTest < Test::Unit::TestCase
     setup do
       @tempfile = Paperclip::Tempfile.new("file")
     end
+
+    teardown { @tempfile.close }
 
     should "not have an extension if not given one" do
       assert_equal "", File.extname(@tempfile.path)
@@ -77,8 +81,10 @@ class ThumbnailTest < Test::Unit::TestCase
         old_path = ENV['PATH']
         begin
           ENV['PATH'] = ''
-          assert_raises(Paperclip::CommandNotFoundError) do
-            @thumb.make
+          assert_raises(Paperclip::Errors::CommandNotFoundError) do
+            silence_stream(STDERR) do
+              @thumb.make
+            end
           end
         ensure
           ENV['PATH'] = old_path
@@ -100,6 +106,10 @@ class ThumbnailTest < Test::Unit::TestCase
 
       should "have convert_options set to nil by default" do
         assert_equal nil, @thumb.convert_options
+      end
+
+      should "have source_file_options set to nil by default" do
+        assert_equal nil, @thumb.source_file_options
       end
 
       should "send the right command to convert when sent #make" do
@@ -150,8 +160,10 @@ class ThumbnailTest < Test::Unit::TestCase
         end
 
         should "error when trying to create the thumbnail" do
-          assert_raises(Paperclip::PaperclipError) do
-            @thumb.make
+          assert_raises(Paperclip::Error) do
+            silence_stream(STDERR) do
+              @thumb.make
+            end
           end
         end
       end
@@ -190,8 +202,10 @@ class ThumbnailTest < Test::Unit::TestCase
         end
 
         should "error when trying to create the thumbnail" do
-          assert_raises(Paperclip::PaperclipError) do
-            @thumb.make
+          assert_raises(Paperclip::Error) do
+            silence_stream(STDERR) do
+              @thumb.make
+            end
           end
         end
 
@@ -199,8 +213,10 @@ class ThumbnailTest < Test::Unit::TestCase
           old_path = ENV['PATH']
           begin
             ENV['PATH'] = ''
-            assert_raises(Paperclip::CommandNotFoundError) do
-              @thumb.make
+            assert_raises(Paperclip::Errors::CommandNotFoundError) do
+              silence_stream(STDERR) do
+                @thumb.make
+              end
             end
           ensure
             ENV['PATH'] = old_path
@@ -218,6 +234,62 @@ class ThumbnailTest < Test::Unit::TestCase
 
       should "not get resized by default" do
         assert !@thumb.transformation_command.include?("-resize")
+      end
+    end
+
+    context "passing a custom file geometry parser" do
+      teardown do
+        self.class.send(:remove_const, :GeoParser)
+      end
+
+      should "produce the appropriate transformation_command" do
+        GeoParser = Class.new do
+          def self.from_file(file)
+            new
+          end
+
+          def transformation_to(target, should_crop)
+            ["SCALE", "CROP"]
+          end
+        end
+
+        thumb = Paperclip::Thumbnail.new(@file, :geometry => '50x50', :file_geometry_parser => GeoParser)
+
+        transformation_command = thumb.transformation_command
+
+        assert transformation_command.include?('-crop'),
+          %{expected #{transformation_command.inspect} to include '-crop'}
+        assert transformation_command.include?('"CROP"'),
+          %{expected #{transformation_command.inspect} to include '"CROP"'}
+        assert transformation_command.include?('-resize'),
+          %{expected #{transformation_command.inspect} to include '-resize'}
+        assert transformation_command.include?('"SCALE"'),
+          %{expected #{transformation_command.inspect} to include '"SCALE"'}
+      end
+    end
+
+    context "passing a custom geometry string parser" do
+      teardown do
+        self.class.send(:remove_const, :GeoParser)
+      end
+
+      should "produce the appropriate transformation_command" do
+        GeoParser = Class.new do
+          def self.parse(s)
+            new
+          end
+
+          def to_s
+            "151x167"
+          end
+        end
+
+        thumb = Paperclip::Thumbnail.new(@file, :geometry => '50x50', :string_geometry_parser => GeoParser)
+
+        transformation_command = thumb.transformation_command
+
+        assert transformation_command.include?('"151x167"'),
+          %{expected #{transformation_command.inspect} to include '151x167'}
       end
     end
   end

@@ -1,3 +1,3 @@
 module Paperclip
-  VERSION = "2.3.16" unless defined? Paperclip::VERSION
+  VERSION = "3.0.2" unless defined? Paperclip::VERSION
 end

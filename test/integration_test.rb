@@ -10,6 +10,8 @@ class IntegrationTest < Test::Unit::TestCase
       end
     end
 
+    teardown { @file.close }
+
     should "not exceed the open file limit" do
        assert_nothing_raised do
          dummies = Dummy.find(:all)
@@ -40,12 +42,16 @@ class IntegrationTest < Test::Unit::TestCase
 
       should "not raise an error" do
         assert_nothing_raised do
-          @dummy.avatar.reprocess!
+          silence_stream(STDERR) do
+            @dummy.avatar.reprocess!
+          end
         end
       end
 
       should "return false" do
-        assert ! @dummy.avatar.reprocess!
+        silence_stream(STDERR) do
+          assert !@dummy.avatar.reprocess!
+        end
       end
 
       teardown { File.chmod(0644, @dummy.avatar.path) }
@@ -54,7 +60,6 @@ class IntegrationTest < Test::Unit::TestCase
     context "redefining its attachment styles" do
       setup do
         Dummy.class_eval do
-          has_attached_file :avatar, :styles => { :thumb => "150x25#" }
           has_attached_file :avatar, :styles => { :thumb => "150x25#", :dynamic => lambda { |a| '50x50#' } }
         end
         @d2 = Dummy.find(@dummy.id)
@@ -76,7 +81,7 @@ class IntegrationTest < Test::Unit::TestCase
 
   context "Attachment" do
     setup do
-      @thumb_path = "./test/../public/system/avatars/1/thumb/5k.png"
+      @thumb_path = "./test/../public/system/dummies/avatars/000/000/001/thumb/5k.png"
       File.delete(@thumb_path) if File.exists?(@thumb_path)
       rebuild_model :styles => { :thumb => "50x50#" }
       @dummy = Dummy.new
@@ -105,8 +110,8 @@ class IntegrationTest < Test::Unit::TestCase
 
   context "Attachment with no generated thumbnails" do
     setup do
-      @thumb_small_path = "./test/../public/system/avatars/1/thumb_small/5k.png"
-      @thumb_large_path = "./test/../public/system/avatars/1/thumb_large/5k.png"
+      @thumb_small_path = "./test/../public/system/dummies/avatars/000/000/001/thumb_small/5k.png"
+      @thumb_large_path = "./test/../public/system/dummies/avatars/000/000/001/thumb_large/5k.png"
       File.delete(@thumb_small_path) if File.exists?(@thumb_small_path)
       File.delete(@thumb_large_path) if File.exists?(@thumb_large_path)
       rebuild_model :styles => { :thumb_small => "50x50#", :thumb_large => "60x60#" }
@@ -157,7 +162,7 @@ class IntegrationTest < Test::Unit::TestCase
     end
 
     should "report the file size of the processed file and not the original" do
-      assert_not_equal @file.size, @dummy.avatar.size
+      assert_not_equal File.size(@file.path), @dummy.avatar.size
     end
 
     teardown { @file.close }
@@ -209,48 +214,6 @@ class IntegrationTest < Test::Unit::TestCase
     end
   end
 
-  context "A model with no attachment validation" do
-    setup do
-      rebuild_model :styles => { :large => "300x300>",
-                                 :medium => "100x100",
-                                 :thumb => ["32x32#", :gif] },
-                    :default_style => :medium,
-                    :url => "/:attachment/:class/:style/:id/:basename.:extension",
-                    :path => ":rails_root/tmp/:attachment/:class/:style/:id/:basename.:extension"
-      @dummy     = Dummy.new
-    end
-
-    should "have its definition return false when asked about whiny_thumbnails" do
-      assert ! Dummy.attachment_definitions[:avatar][:whiny_thumbnails]
-    end
-
-    context "when validates_attachment_thumbnails is called" do
-      setup do
-        Dummy.validates_attachment_thumbnails :avatar
-      end
-
-      should "have its definition return true when asked about whiny_thumbnails" do
-        assert_equal true, Dummy.attachment_definitions[:avatar][:whiny_thumbnails]
-      end
-    end
-
-    context "redefined to have attachment validations" do
-      setup do
-        rebuild_model :styles => { :large => "300x300>",
-                                   :medium => "100x100",
-                                   :thumb => ["32x32#", :gif] },
-                      :whiny_thumbnails => true,
-                      :default_style => :medium,
-                      :url => "/:attachment/:class/:style/:id/:basename.:extension",
-                      :path => ":rails_root/tmp/:attachment/:class/:style/:id/:basename.:extension"
-      end
-
-      should "have its definition return true when asked about whiny_thumbnails" do
-        assert_equal true, Dummy.attachment_definitions[:avatar][:whiny_thumbnails]
-      end
-    end
-  end
-
   context "A model with no convert_options setting" do
     setup do
       rebuild_model :styles => { :large => "300x300>",
@@ -283,12 +246,65 @@ class IntegrationTest < Test::Unit::TestCase
     end
   end
 
+  context "A model with no source_file_options setting" do
+    setup do
+      rebuild_model :styles => { :large => "300x300>",
+                                 :medium => "100x100",
+                                 :thumb => ["32x32#", :gif] },
+                    :default_style => :medium,
+                    :url => "/:attachment/:class/:style/:id/:basename.:extension",
+                    :path => ":rails_root/tmp/:attachment/:class/:style/:id/:basename.:extension"
+      @dummy     = Dummy.new
+    end
+
+    should "have its definition return nil when asked about source_file_options" do
+      assert ! Dummy.attachment_definitions[:avatar][:source_file_options]
+    end
+
+    context "redefined to have source_file_options setting" do
+      setup do
+        rebuild_model :styles => { :large => "300x300>",
+                                   :medium => "100x100",
+                                   :thumb => ["32x32#", :gif] },
+                      :source_file_options => "-density 400",
+                      :default_style => :medium,
+                      :url => "/:attachment/:class/:style/:id/:basename.:extension",
+                      :path => ":rails_root/tmp/:attachment/:class/:style/:id/:basename.:extension"
+      end
+
+      should "have its definition return source_file_options value when asked about source_file_options" do
+        assert_equal "-density 400", Dummy.attachment_definitions[:avatar][:source_file_options]
+      end
+    end
+  end
+
+  [000,002,022].each do |umask|
+    context "when the umask is #{umask}" do
+      setup do
+        rebuild_model
+        @dummy = Dummy.new
+        @file  = File.new(File.join(FIXTURES_DIR, "5k.png"), 'rb')
+        @umask = File.umask(umask)
+      end
+
+      teardown do
+        File.umask @umask
+        @file.close
+      end
+
+      should "respect the current umask" do
+        @dummy.avatar = @file
+        @dummy.save
+        assert_equal 0666&~umask, 0666&File.stat(@dummy.avatar.path).mode
+      end
+    end
+  end
+
   context "A model with a filesystem attachment" do
     setup do
       rebuild_model :styles => { :large => "300x300>",
                                  :medium => "100x100",
                                  :thumb => ["32x32#", :gif] },
-                    :whiny_thumbnails => true,
                     :default_style => :medium,
                     :url => "/:attachment/:class/:style/:id/:basename.:extension",
                     :path => ":rails_root/tmp/:attachment/:class/:style/:id/:basename.:extension"
@@ -300,6 +316,8 @@ class IntegrationTest < Test::Unit::TestCase
       assert @dummy.valid?, @dummy.errors.full_messages.join(", ")
       assert @dummy.save
     end
+
+    teardown { [@file, @bad_file].each(&:close) }
 
     should "write and delete its files" do
       [["434x66", :original],
@@ -319,8 +337,6 @@ class IntegrationTest < Test::Unit::TestCase
       assert_equal "100x15", `identify -format "%wx%h" "#{@d2.avatar.path(:medium)}"`.chomp
       assert_equal "32x32",  `identify -format "%wx%h" "#{@d2.avatar.path(:thumb)}"`.chomp
 
-      @dummy.avatar = "not a valid file but not nil"
-      assert_equal File.basename(@file.path), @dummy.avatar_file_name
       assert @dummy.valid?
       assert @dummy.save
 
@@ -359,13 +375,13 @@ class IntegrationTest < Test::Unit::TestCase
       end
     end
 
-    should "know the difference between good files, bad files, and not files" do
-      expected = @dummy.avatar.to_file
-      @dummy.avatar = "not a file"
-      assert @dummy.valid?
-      assert_equal expected.path, @dummy.avatar.path
-      expected.close
+    should "not abide things that don't have adapters" do
+      assert_raises(Paperclip::AdapterRegistry::NoHandlerError) do
+        @dummy.avatar = "not a file"
+      end
+    end
 
+    should "not be ok with bad files" do
       @dummy.avatar = @bad_file
       assert ! @dummy.valid?
     end
@@ -381,29 +397,11 @@ class IntegrationTest < Test::Unit::TestCase
 
     should "be able to reload without saving and not have the file disappear" do
       @dummy.avatar = @file
-      assert @dummy.save
+      assert @dummy.save, @dummy.errors.full_messages.inspect
       @dummy.avatar.clear
       assert_nil @dummy.avatar_file_name
       @dummy.reload
       assert_equal "5k.png", @dummy.avatar_file_name
-    end
-
-    [000,002,022].each do |umask|
-      context "when the umask is #{umask}" do
-        setup do
-          @umask = File.umask umask
-        end
-
-        teardown do
-          File.umask @umask
-        end
-
-        should "respect the current umask" do
-          @dummy.avatar = @file
-          @dummy.save
-          assert_equal 0666&~umask, 0666&File.stat(@dummy.avatar.path).mode
-        end
-      end
     end
 
     context "that is assigned its file from another Paperclip attachment" do
@@ -414,15 +412,17 @@ class IntegrationTest < Test::Unit::TestCase
         @dummy2.save
       end
 
+      teardown { @file2.close }
+
       should "work when assigned a file" do
         assert_not_equal `identify -format "%wx%h" "#{@dummy.avatar.path(:original)}"`,
                          `identify -format "%wx%h" "#{@dummy2.avatar.path(:original)}"`
 
         assert @dummy.avatar = @dummy2.avatar
         @dummy.save
+        assert_equal @dummy.avatar_file_name, @dummy2.avatar_file_name
         assert_equal `identify -format "%wx%h" "#{@dummy.avatar.path(:original)}"`,
                      `identify -format "%wx%h" "#{@dummy2.avatar.path(:original)}"`
-        assert_equal @dummy.avatar_file_name, @dummy2.avatar_file_name
       end
     end
 
@@ -434,16 +434,13 @@ class IntegrationTest < Test::Unit::TestCase
         has_many :attachments, :class_name => 'Dummy'
       end
 
+      @file = File.new(File.join(File.dirname(__FILE__), "fixtures", "5k.png"), 'rb')
       @dummy = Dummy.new
-      @dummy.avatar = File.new(File.join(File.dirname(__FILE__),
-                               "fixtures",
-                               "5k.png"), 'rb')
+      @dummy.avatar = @file
     end
 
     should "should not error when saving" do
-      assert_nothing_raised do
-        @dummy.save!
-      end
+      @dummy.save!
     end
   end
 
@@ -474,7 +471,6 @@ class IntegrationTest < Test::Unit::TestCase
                                    :medium => "100x100",
                                    :thumb => ["32x32#", :gif] },
                       :storage => :s3,
-                      :whiny_thumbnails => true,
                       :s3_credentials => File.new(File.join(File.dirname(__FILE__), "s3.yml")),
                       :default_style => :medium,
                       :bucket => ENV['S3_TEST_BUCKET'],
@@ -490,6 +486,12 @@ class IntegrationTest < Test::Unit::TestCase
         @files_on_s3 = s3_files_for @dummy.avatar
       end
 
+      teardown do
+        @file.close
+        @bad_file.close
+        @files_on_s3.values.each(&:close)
+      end
+
       context 'assigning itself to a new model' do
         setup do
           @d2 = Dummy.new
@@ -503,7 +505,6 @@ class IntegrationTest < Test::Unit::TestCase
       end
 
       should "have the same contents as the original" do
-        @file.rewind
         assert_equal @file.read, @files_on_s3[:original].read
       end
 

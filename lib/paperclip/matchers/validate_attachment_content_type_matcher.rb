@@ -33,7 +33,7 @@ module Paperclip
 
         def matches? subject
           @subject = subject
-          @subject = @subject.class unless Class === @subject
+          @subject = @subject.new if @subject.class == Class
           @allowed_types && @rejected_types &&
           allowed_types_allowed? && rejected_types_rejected?
         end
@@ -41,7 +41,7 @@ module Paperclip
         def failure_message
           "".tap do |str|
             str << "Content types #{@allowed_types.join(", ")} should be accepted" if @allowed_types.present?
-            str << "\n" if @allowed_types.present && @rejected_types.present?
+            str << "\n" if @allowed_types.present? && @rejected_types.present?
             str << "Content types #{@rejected_types.join(", ")} should be rejected by #{@attachment_name}" if @rejected_types.present?
           end
         end
@@ -49,7 +49,7 @@ module Paperclip
         def negative_failure_message
           "".tap do |str|
             str << "Content types #{@allowed_types.join(", ")} should be rejected" if @allowed_types.present?
-            str << "\n" if @allowed_types.present && @rejected_types.present?
+            str << "\n" if @allowed_types.present? && @rejected_types.present?
             str << "Content types #{@rejected_types.join(", ")} should be accepted by #{@attachment_name}" if @rejected_types.present?
           end
         end
@@ -61,11 +61,11 @@ module Paperclip
         protected
 
         def type_allowed?(type)
-          file = StringIO.new(".")
+          file = Paperclip.io_adapters.for(StringIO.new("."))
           file.content_type = type
-          (subject = @subject.new).attachment_for(@attachment_name).assign(file)
-          subject.valid?
-          subject.errors[:"#{@attachment_name}_content_type"].blank?
+          @subject.attachment_for(@attachment_name).assign(file)
+          @subject.valid?
+          @subject.errors[:"#{@attachment_name}_content_type"].blank?
         end
 
         def allowed_types_allowed?
